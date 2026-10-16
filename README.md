@@ -24,7 +24,7 @@ With the environment activated, the launch command is simply `python -m lilt`. O
 
 1. Leave Lilt running and select a word or sentence in another application.
 2. Hold **Ctrl** and tap **C** twice quickly, within about 0.6 seconds. The application must support copying the selection.
-3. The quick popup opens and translates the clipboard text. Press **Esc** to hide it and keep reading.
+3. The quick popup opens beside your mouse cursor and translates the clipboard text. Near a screen edge it opens on the other side and stays within that monitor's work area. Press **Esc** to hide it and keep reading.
 
 You can also copy once, then press **Ctrl+Alt+Space**, or choose **Translate clipboard** from Lilt's tray menu. The shortcut uses the current clipboard; it does not extract text from pictures or applications that prevent copying.
 

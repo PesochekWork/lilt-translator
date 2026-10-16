@@ -14,6 +14,7 @@ from .anki import AnkiClient, AnkiError
 from .credentials import Credentials
 from .engine import TranslationResult, translate
 from .hotkeys import CaptureListener
+from .popup import CursorPopup
 from .storage import Store
 from .theme import STYLE
 
@@ -579,7 +580,7 @@ class MainWindow(QMainWindow):
             self.translator.notify("Choose up to 5,000 characters at a time.", True)
             return
         if self.popup is None:
-            self.popup = QDialog(self)
+            self.popup = CursorPopup(self)
             self.popup.setWindowTitle("Quick translate · Lilt")
             self.popup.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
             self.popup.setWindowIcon(icon())
@@ -590,10 +591,10 @@ class MainWindow(QMainWindow):
             self.quick = TranslationPane(self.c, compact=True)
             layout.addWidget(self.quick)
             QShortcut(QKeySequence("Escape"), self.popup, self.popup.hide)
-        self.popup.showNormal()
+        self.quick.capture(text)
+        self.popup.show_near_cursor()
         self.popup.raise_()
         self.popup.activateWindow()
-        self.quick.capture(text)
 
     def make_library_page(self, cards):
         page = QWidget()
