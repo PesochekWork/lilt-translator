@@ -1,24 +1,37 @@
 # Lilt
 
-A small Windows desktop translator for **English ↔ Russian**, with a quick selection popup, local translation history, and shortcut-driven Anki cards. No Lilt account is needed.
+A small Windows desktop translator for **English ↔ Russian**, with a quick selection popup, local history, and English vocabulary cards for Anki. No Lilt account is needed.
 
-The interface uses a charcoal theme, orange accents, sharp borders, and square checkboxes. The main window starts at **960 × 600**, with compact text panes for words and short phrases. Translation text stays at **19 px**; pronunciation and details use **18 px** with wrapping and scrolling. Resize the window for longer text. Repeated language/provider badges and capture-status help are hidden; language selection, Swap, and Preferences remain available.
+**[Download setup.exe for Windows](https://github.com/PesochekWork/lilt-translator/releases/latest/download/setup.exe)** · [All releases](https://github.com/PesochekWork/lilt-translator/releases)
+
+## Install
+
+Requires **Windows 10 or 11, 64-bit (x64)**. Python is not needed.
+
+1. Download **setup.exe** from the latest release and run it.
+2. Follow the setup wizard. Lilt installs for your Windows account without administrator privileges. A Start menu entry and a desktop shortcut are included by default.
+3. Open **Lilt** and enter a word, or use the selection shortcut below.
+
+The installer is not code-signed, so Windows may show a SmartScreen prompt. Download it from this repository's Releases page.
+
+Before updating, save any text you need and choose **Quit Lilt** from its system-tray menu. Closing the window normally leaves the app running. Install the new release over the existing one to keep your history, cards, and preferences.
+
+To uninstall, use **Windows Settings → Apps → Lilt**. Uninstalling removes the application and its shortcuts, but keeps your personal data in **`%LOCALAPPDATA%\Lilt`**. Anki, AnkiConnect, and speech voices are separate and are not installed or removed by Lilt setup.
+
+For a folder-only package, download **Lilt-0.1.0-windows-x64.zip** from the [release page](https://github.com/PesochekWork/lilt-translator/releases), extract it, and run **Lilt.exe**. Keep the extracted folder together. Both packages use the same local data folder; the ZIP does not isolate your history or settings. Release assets also include **SHA256SUMS.txt** for download verification.
+
+## What Lilt does
+
+- Translate English and Russian words, phrases, and text up to 5,000 characters.
+- Open a compact popup from a selection with **Ctrl+C, C**, without leaving what you are reading.
+- Show English definitions and pronunciation when dictionary information is available.
+- Save English-first Anki cards with Russian translations, definitions, pronunciation, and optional context.
+- Read the English word aloud in Anki using its native text-to-speech support.
+- Keep translation history and cards locally, including cards waiting for Anki.
+
+The charcoal interface opens at **960 × 600**, with compact text panes and readable pronunciation/details. Resize the window for longer text; the content wraps and scrolls.
 
 ![Lilt translator](docs/translator.png)
-
-## Run
-
-Open **`dist/Lilt/Lilt.exe`** from the packaged build. Keep the entire `dist/Lilt` folder together; the executable needs its adjacent files. Python is not required to run this package.
-
-To run from source, use Python 3.12 or newer on Windows (tested with Python 3.14). In this project folder:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m lilt
-```
-
-With the environment activated, the launch command is simply `python -m lilt`. Opening Lilt again brings its existing window forward.
 
 ## Translate while reading
 
@@ -42,9 +55,9 @@ For short English words or phrases, Lilt also requests English definitions and p
 
 ## Translation providers and connection drops
 
-**Google web** is the default and needs no account or API key. It uses an unofficial Google endpoint that may change, reject requests, or become unavailable. It worked from the development machine during setup; this does not guarantee availability on every network or future date. Lilt shows connection and service errors so you can retry.
+**Google web** is the default and needs no account or API key. It uses an unofficial Google endpoint that may change, reject requests, or become unavailable. Lilt shows connection and service errors so you can retry.
 
-**DeepL API** is optional. Enter your own API key in **Preferences**, select DeepL, and click **Save preferences**. Lilt uses DeepL's official API, separate from its desktop application. Its live integration has not been verified without a real key. Your DeepL account's current plan and allowance apply; see [DeepL's API documentation](https://developers.deepl.com/docs) and [plan information](https://support.deepl.com/hc/en-us/articles/360021200939-DeepL-API-plans).
+**DeepL API** is optional. Enter your own API key in **Preferences**, select DeepL, and click **Save preferences**. Lilt uses DeepL's official API, separate from its desktop application. Your DeepL account's plan and allowance apply; see [DeepL's API documentation](https://developers.deepl.com/docs) and [plan information](https://support.deepl.com/hc/en-us/articles/360021200939-DeepL-API-plans).
 
 New translations need an internet connection. Previously saved results can be reused locally for the **same text, source-language setting, and provider**. This exact-query cache is not a general offline translation engine. **History** lets you read earlier results. **Clear history** removes both history and cached translations while keeping your cards.
 
@@ -52,7 +65,7 @@ New translations need an internet connection. Previously saved results can be re
 
 Lilt connects to Anki desktop on this computer through [AnkiConnect](https://git.sr.ht/~foosoft/anki-connect).
 
-1. In Anki, open **Tools → Add-ons → Get Add-ons** and enter **`2055492159`** ([AnkiWeb listing](https://ankiweb.net/shared/info/2055492159)).
+1. Install [Anki desktop](https://apps.ankiweb.net/) if needed. In Anki, open **Tools → Add-ons → Get Add-ons** and enter **`2055492159`** ([AnkiWeb listing](https://ankiweb.net/shared/info/2055492159)).
 2. Restart Anki and leave it open with your collection loaded.
 3. In Lilt's **Preferences**, click **Test connection**. If Anki asks to allow access, approve Lilt's connection. AnkiConnect listens at `127.0.0.1:8765`; no AnkiWeb account is needed for local card creation.
 4. Translate something, optionally add a context sentence, and choose or type a deck name. A new deck is created when the card is sent.
@@ -60,7 +73,7 @@ Lilt connects to Anki desktop on this computer through [AnkiConnect](https://git
 
 New cards use the note type **Lilt Vocabulary v2**, created automatically on the first **Add to Anki** if absent. Its fields are **English**, **Russian**, **Definition**, **Pronunciation**, **Context**, and **DictionarySource**, in that order. The English word is centered on the front; the back centers the word, Russian translation, available English definitions and phonetic text, and optional context. Dictionary source/license metadata stays in **DictionarySource** and exports, without visible source links on the review card. Russian → English input uses the same English-first card layout. **Preview** and **Cards** show these saved details. If dictionary information is unavailable, a translation card can still be saved with those optional fields empty.
 
-Existing local cards and the original **Lilt** note type (**Front / Back / Context**) keep their original content and behavior. Normal Lilt card creation does not rewrite existing Anki templates, including user edits. If a note type already has the new name but different fields, Lilt reports the conflict instead of changing it. The requested centering and speech update to this computer's existing **Lilt Vocabulary v2** templates is applied separately after a local backup; it affects how those existing notes are displayed, without changing their field contents.
+Existing local cards and the original **Lilt** note type (**Front / Back / Context**) keep their original content and behavior. Lilt does not rewrite existing Anki templates, including user edits. If **Lilt Vocabulary v2** already exists, its current templates stay unchanged; the centered layout and speech template are installed when Lilt creates that note type. If its fields differ from those listed above, Lilt reports the conflict instead of changing it.
 
 Cards are saved locally before sending. If Anki is closed or unreachable, open **Cards** later and click **Send to Anki** on a waiting card. Retry is explicit; leaving a card waiting does not automatically send it. A successful send is marked **In Anki**. Removing a local card from Lilt leaves any existing Anki note in place.
 
@@ -110,6 +123,20 @@ Text is sent to the selected translation provider only when you click **Translat
 - Google's alternatives and transliteration are provider-dependent. Real English definitions and phonetic text come from the separate optional dictionary lookup, including when using DeepL.
 - There is no bundled offline translation model, recorded pronunciation audio, OCR, or automatic context extraction in this version. Anki speech uses the system voice as described above.
 
+## Run from source
+
+Use **Python 3.12 or newer** on Windows (development and tests use Python 3.14):
+
+```powershell
+git clone https://github.com/PesochekWork/lilt-translator.git
+cd lilt-translator
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m lilt
+```
+
+Opening Lilt again brings its existing window forward, including when another copy is running from an installation or a build folder. Quit the tray instance before switching between versions.
+
 ## Test and build
 
 From the project folder, with the source environment installed:
@@ -118,13 +145,24 @@ From the project folder, with the source environment installed:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Build the Windows folder package with:
+Activate the environment and build the Windows folder package with:
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
 .\build.ps1
 ```
 
-The build produces `dist/Lilt/Lilt.exe`. Run it from its folder, then check translation, popup capture, tray behavior, and your Anki connection. Automated tests exercise behavior using controlled responses; a live service check establishes availability only at the time and place it runs. DeepL requires your own key for live verification.
+The build installs its build dependencies, runs the test suite, packages with PyInstaller, and checks the resulting executable. It produces **`dist/Lilt/Lilt.exe`**. Keep the entire **`dist/Lilt`** folder together; the executable needs its adjacent files. This package also runs without Python.
+
+Build the Windows installer with:
+
+```powershell
+.\build-installer.ps1
+```
+
+The installer build requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) and produces **`dist/installer/setup.exe`** after building and checking the application. To package an already verified folder build, use **`-PackageDir`**; **`-OutputDir`** and **`-CompilerPath`** override the output directory and Inno Setup compiler location. Build outputs are ignored by Git and distributed through GitHub Releases.
+
+After a build, check translation, popup capture, tray behavior, and your Anki connection. Automated tests use controlled translation/dictionary responses and isolated Anki fixtures; they do not create cards in your collection. Live services can vary by network and time. DeepL requires your own key for live verification.
 
 For a noninteractive package check that uses no network, keyboard hook, or personal Anki collection:
 
