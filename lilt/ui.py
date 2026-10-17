@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from .anki import AnkiClient, AnkiError
+from .cards import enrich_translation, prepare_vocabulary_card
 from .credentials import Credentials
 from .engine import TranslationResult, translate
 from .hotkeys import CaptureListener
@@ -134,7 +135,7 @@ class Controller(QObject):
         if cached:
             cached["from_cache"] = True
             return TranslationResult.from_dict(cached)
-        result = translate(text, language, provider, self.secrets.get("deepl", ""))
+        result = enrich_translation(translate(text, language, provider, self.secrets.get("deepl", "")))
         self.store.cache_put(text, language, provider, asdict(result))
         return result
 
@@ -147,16 +148,13 @@ class TranslationPane(QWidget):
         self.result = None
         self.revision = 0
         self.adding = False
+        self.previewing = False
         self.pending_translation = None
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(13)
-        top = QHBoxLayout()
-        top.addWidget(label("QUICK TRANSLATE" if compact else "EN ↔ RU", "eyebrow"))
-        top.addStretch()
-        self.provider_label = label("", "muted")
-        top.addWidget(self.provider_label)
-        root.addLayout(top)
+        root.setSpacing(13 if compact else 9)
+        if compact:
+            root.addWidget(label("QUICK TRANSLATE", "eyebrow"))
         self.banner = label("")
         self.banner.setObjectName("banner")
         self.banner.setWordWrap(True)
@@ -179,7 +177,7 @@ class TranslationPane(QWidget):
         self.source.setObjectName("source")
         self.source.setAcceptRichText(False)
         self.source.setPlaceholderText("Enter text…")
-        self.source.setMinimumHeight(90 if compact else 168)
+        self.source.setMinimumHeight(90 if compact else 64)
         source_layout.addWidget(self.source, 1)
         source_bottom = QHBoxLayout()
         self.count = label("0 / 5,000", "muted")
@@ -201,11 +199,9 @@ class TranslationPane(QWidget):
         self.output.setObjectName("translation")
         self.output.setAcceptRichText(False)
         self.output.setPlaceholderText("Translation")
-        self.output.setMinimumHeight(85 if compact else 168)
+        self.output.setMinimumHeight(85 if compact else 64)
         target_layout.addWidget(self.output, 1)
         target_bottom = QHBoxLayout()
-        self.result_meta = label("English ↔ Russian", "muted")
-        target_bottom.addWidget(self.result_meta)
         target_bottom.addStretch()
         self.swap = button("Swap", self.swap_languages, quiet=True)
         self.swap.setEnabled(False)
@@ -221,11 +217,13 @@ class TranslationPane(QWidget):
         self.translate_button.setToolTip("Ctrl+Enter")
         translate_row.addWidget(self.translate_button)
         root.addLayout(translate_row)
-        self.meanings = label("")
-        self.meanings.setWordWrap(True)
-        self.meanings.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.meanings = QTextEdit()
+        self.meanings.setObjectName("details")
+        self.meanings.setReadOnly(True)
+        self.meanings.setAcceptRichText(False)
+        self.meanings.setMinimumHeight(90)
         self.meanings.hide()
-        root.addWidget(self.meanings)
+        root.addWidget(self.meanings, 1)
         anki_box, anki_layout = panel()
         anki_top = QHBoxLayout()
         anki_top.addWidget(label("ANKI CARD", "eyebrow"))
@@ -263,8 +261,11 @@ class TranslationPane(QWidget):
         self.refresh_provider()
         self.update_actions()
 
+    def heightForWidth(self, width):
+        # Editors can shrink and scroll instead of forcing their preferred height.
+        return self.layout().minimumHeightForWidth(width)
+
     def refresh_provider(self):
-        self.provider_label.setText("Google web" if self.c.store.get_setting("provider", "google") == "google" else "DeepL API")
         self.revision += 1
         self.result = None
         self.update_actions()
@@ -292,8 +293,8 @@ class TranslationPane(QWidget):
         target = self.output.toPlainText().strip()
         valid = bool(self.result and source and target)
         self.translate_button.setEnabled(bool(source) and len(source) <= 5000)
-        self.add_button.setEnabled(valid and not self.adding)
-        self.preview.setEnabled(valid)
+        self.add_button.setEnabled(valid and not self.adding and not self.previewing)
+        self.preview.setEnabled(valid and not self.previewing and not self.adding)
         self.copy_button.setEnabled(bool(target))
         self.swap.setEnabled(valid)
 
@@ -305,8 +306,7 @@ class TranslationPane(QWidget):
         self.source.clear()
         self.output.clear()
         self.context.clear()
-        self.target.setText("TRANSLATION")
-        self.result_meta.setText("English ↔ Russian")
+        self.target.setText("Translation")
         self.source.setFocus()
 
     def copy(self):
@@ -364,19 +364,17 @@ class TranslationPane(QWidget):
     def present_result(self, result):
         self.result = result
         self.output.setPlainText(result.translated_text)
-        self.target.setText("РУССКИЙ" if result.target_lang == "ru" else "ENGLISH")
-        names = {"en": "English", "ru": "Russian"}
-        self.result_meta.setText(f"{names[result.source_lang]} → {names[result.target_lang]}")
-        self.state.setText("From your local history · no network request" if result.from_cache else result.provider)
+        self.state.setText("From your local history" if result.from_cache else "Translated")
         self.translate_button.setText("Translate")
         lines = []
-        if result.pronunciation:
-            lines.append(result.pronunciation)
-        for meaning in result.definitions[:3]:
-            terms = "; ".join(meaning.get("terms", [])[:6])
+        if result.english_pronunciation:
+            lines.append(result.english_pronunciation)
+        lines.extend(result.english_definitions)
+        for meaning in result.definitions:
+            terms = "; ".join(meaning.get("terms", []))
             if terms:
                 lines.append(f"{meaning.get('part_of_speech', 'Also')}  ·  {terms}")
-        self.meanings.setText("\n".join(lines))
+        self.meanings.setPlainText("\n".join(lines))
         self.meanings.setVisible(bool(lines))
         self.update_actions()
 
@@ -390,43 +388,80 @@ class TranslationPane(QWidget):
         self.start_translation()
 
     def preview_card(self):
-        if not self.result:
+        if not self.result or self.previewing or self.adding:
             return
+        result = self.result
+        source = self.source.toPlainText()
+        translated = self.output.toPlainText()
+        context = self.context.text()
+        deck = self.deck.currentText()
+        revision = self.revision
+        self.previewing = True
+        self.preview.setText("Loading…")
+        self.update_actions()
+        def success(card):
+            self.previewing = False
+            self.preview.setText("Preview")
+            self.update_actions()
+            # Never show a preview for text that changed during the lookup.
+            if (revision == self.revision and translated == self.output.toPlainText()
+                    and context == self.context.text() and deck == self.deck.currentText()):
+                self._show_card_preview(card)
+        def failure(message):
+            self.previewing = False
+            self.preview.setText("Preview")
+            self.update_actions()
+            self.notify(message, True)
+        self.c.run(lambda: prepare_vocabulary_card(result, source, translated, context, deck), success, failure)
+
+    def _show_card_preview(self, card):
         d = QDialog(self)
         d.setWindowTitle("Card preview · Lilt")
-        d.resize(480, 340)
+        d.resize(560, 480)
         layout = QVBoxLayout(d)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.addWidget(label("FRONT", "eyebrow"))
-        front = label(self.source.toPlainText())
+        front_heading = label("FRONT", "eyebrow")
+        front_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(front_heading)
+        front = label(card.english)
         front.setWordWrap(True)
+        front.setStyleSheet("font-size: 24px;")
+        front.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(front)
         layout.addSpacing(15)
-        layout.addWidget(label("BACK", "eyebrow"))
-        back = label(self.output.toPlainText())
-        back.setWordWrap(True)
+        back_heading = label("BACK", "eyebrow")
+        back_heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(back_heading)
+        back = QTextEdit()
+        back.setObjectName("details")
+        back.setReadOnly(True)
+        back.setAcceptRichText(False)
+        parts = [card.russian, card.pronunciation or "Pronunciation unavailable.",
+                 card.definition or "English definition unavailable; the translation can still be saved."]
+        if card.context:
+            parts.append(card.context)
+        back.setPlainText("\n\n".join(parts))
+        text_option = back.document().defaultTextOption()
+        text_option.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        back.document().setDefaultTextOption(text_option)
         layout.addWidget(back)
-        if self.context.text().strip():
-            note = label(self.context.text(), "muted")
-            note.setWordWrap(True)
-            layout.addWidget(note)
-        layout.addStretch()
-        layout.addWidget(label("One card: source on the front, translation and context on the back.", "muted"))
         layout.addWidget(button("Done", d.accept, primary=True))
         d.exec()
 
     def add_card(self):
-        if not self.result or self.adding or not self.output.toPlainText().strip():
+        if not self.result or self.adding or self.previewing or not self.output.toPlainText().strip():
             return
-        front = self.source.toPlainText().strip()
-        back = self.output.toPlainText().strip()
+        result = self.result
+        source = self.source.toPlainText().strip()
+        translated = self.output.toPlainText().strip()
+        front, back = (source, translated) if result.source_lang == "en" else (translated, source)
         context = self.context.text().strip()
         deck = self.deck.currentText().strip() or "Lilt"
-        existing = self.c.store.find_card(front, back, deck)
+        existing = self.c.store.find_card(front, back, deck, card_version=2)
         if existing and existing.get("note_id"):
             self.notify(f"Already added to Anki · {deck}")
             return
-        card_key = (front, back, deck)
+        card_key = (front, back, deck, 2)
         if card_key in self.c.inflight_cards:
             self.notify("This card is already being sent to Anki.")
             return
@@ -436,13 +471,21 @@ class TranslationPane(QWidget):
         self.add_button.setText("Adding…")
         self.update_actions()
         def work():
-            # Keep the exact card the user approved before contacting Anki.
-            self.c.store.save_card(front, back, context, deck)
-            card = self.c.store.find_card(front, back, deck)
-            # An existing pending card keeps its original context on retries.
-            note_id = self.c.anki().add_card(front, back, card["context"] if card else context, deck)
+            card = self.c.store.find_card(front, back, deck, card_version=2)
+            if card is None:
+                content = prepare_vocabulary_card(result, source, translated, context, deck)
+                # Save the complete snapshot before contacting Anki, even offline.
+                self.c.store.save_card(content.english, content.russian, content.context, content.deck,
+                                       card_version=2, definition=content.definition,
+                                       pronunciation=content.pronunciation,
+                                       definition_source=content.definition_source)
+                card = self.c.store.find_card(front, back, deck, card_version=2)
+            note_id = self.c.anki().add_vocabulary_card(
+                card["front"], card["back"], definition=card["definition"],
+                pronunciation=card["pronunciation"], context=card["context"],
+                deck=card["deck"], definition_source=card["definition_source"])
             if card:
-                self.c.store.mark_card_sent(card["id"], note_id, identity=card_key)
+                self.c.store.mark_card_sent(card["id"], note_id, identity=card_key[:3], card_version=2)
             return note_id
         def success(_):
             self.c.inflight_cards.discard(card_key)
@@ -468,11 +511,10 @@ class MainWindow(QMainWindow):
         self.quitting = False
         self.popup = None
         self.listener = None
-        self.capture_available = True
-        self.setWindowTitle("Lilt · English ↔ Russian")
+        self.setWindowTitle("Lilt")
         self.setWindowIcon(icon())
-        self.resize(1050, 785)
-        self.setMinimumSize(920, 700)
+        self.resize(960, 600)
+        self.setMinimumSize(900, 540)
         body = QWidget()
         body.setObjectName("body")
         self.setCentralWidget(body)
@@ -500,26 +542,21 @@ class MainWindow(QMainWindow):
             self.nav.append(b)
             side.addWidget(b)
         side.addStretch()
-        side.addWidget(label("SHORTCUTS", "eyebrow"))
-        side.addSpacing(7)
-        side.addWidget(label("Ctrl + C + C"))
-        side.addWidget(label("Ctrl + Alt + Space", "muted"))
-        side.addSpacing(22)
-        side.addWidget(label("EN  ↔  РУ     ·     v0.1", "muted"))
         outer.addWidget(sidebar)
         content = QVBoxLayout()
-        content.setContentsMargins(29, 27, 29, 23)
-        content.setSpacing(17)
+        content.setContentsMargins(24, 18, 24, 18)
+        content.setSpacing(12)
         title_row = QHBoxLayout()
         self.heading = label("Translator", "heading")
         title_row.addWidget(self.heading)
         title_row.addStretch()
-        self.capture_status = label("●  Double-copy on", "muted")
-        title_row.addWidget(self.capture_status)
         content.addLayout(title_row)
         self.pages = QStackedWidget()
         self.translator = TranslationPane(controller)
-        self.pages.addWidget(self.translator)
+        translator_scroll = QScrollArea()
+        translator_scroll.setWidgetResizable(True)
+        translator_scroll.setWidget(self.translator)
+        self.pages.addWidget(translator_scroll)
         self.cards_page = self.make_library_page(True)
         self.pages.addWidget(self.cards_page)
         self.history_page = self.make_library_page(False)
@@ -531,7 +568,7 @@ class MainWindow(QMainWindow):
         self.tray = None
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = QSystemTrayIcon(icon(), self)
-            self.tray.setToolTip("Lilt · Copy twice to translate")
+            self.tray.setToolTip("Lilt")
             menu = QMenu()
             menu.addAction("Open Lilt", self.show_main)
             menu.addAction("Translate clipboard", self.capture_clipboard)
@@ -548,7 +585,6 @@ class MainWindow(QMainWindow):
             self.listener.warning.connect(self.capture_warning)
             self.listener.start()
             QApplication.instance().aboutToQuit.connect(self.listener.stop)
-        self.update_capture_status()
         self.show_page(0)
 
     def show_main(self):
@@ -558,8 +594,6 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def capture_unavailable(self, message):
-        self.capture_available = False
-        self.capture_status.setText("○  Paste to translate")
         self.translator.notify(message, True)
 
     @Slot(str)
@@ -589,7 +623,10 @@ class MainWindow(QMainWindow):
             layout = QVBoxLayout(self.popup)
             layout.setContentsMargins(22, 20, 22, 20)
             self.quick = TranslationPane(self.c, compact=True)
-            layout.addWidget(self.quick)
+            quick_scroll = QScrollArea()
+            quick_scroll.setWidgetResizable(True)
+            quick_scroll.setWidget(self.quick)
+            layout.addWidget(quick_scroll)
             QShortcut(QKeySequence("Escape"), self.popup, self.popup.hide)
         self.quick.capture(text)
         self.popup.show_near_cursor()
@@ -660,12 +697,21 @@ class MainWindow(QMainWindow):
             back.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             back.setStyleSheet("color: #ffad4a;")
             box.addWidget(back)
+            if cards and row.get("card_version", 1) == 2:
+                for text in (row.get("pronunciation"), row.get("definition")):
+                    if text:
+                        details = label(text)
+                        details.setWordWrap(True)
+                        details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                        details.setStyleSheet("font-size: 18px;")
+                        box.addWidget(details)
             if cards and row.get("context"):
                 context = label(row["context"], "muted")
                 context.setWordWrap(True)
                 box.addWidget(context)
             footer = QHBoxLayout()
-            footer.addWidget(label((f"{row['deck']} · " + ("In Anki" if row.get("note_id") else "Waiting for Anki")) if cards else f"{row['source_lang'].upper()} → {row['target_lang'].upper()} · {row['provider']}", "muted"))
+            if cards:
+                footer.addWidget(label(f"{row['deck']} · " + ("In Anki" if row.get("note_id") else "Waiting for Anki"), "muted"))
             footer.addStretch()
             if cards:
                 if not row.get("note_id"):
@@ -682,19 +728,33 @@ class MainWindow(QMainWindow):
         self.translator.language.setCurrentIndex(self.translator.language.findData(row["source_lang"]))
         self.translator.source.setPlainText(row["source_text"])
         self.translator.context.clear()
-        self.translator.present_result(TranslationResult(
-            source_text=row["source_text"], translated_text=row["translated_text"],
-            source_lang=row["source_lang"], target_lang=row["target_lang"],
-            provider=row["provider"], from_cache=True))
+        cached = self.c.store.cache_get(row["source_text"], row.get("request_lang", row["source_lang"]),
+                                        row.get("provider_key", "google"))
+        if cached:
+            cached["from_cache"] = True
+            result = TranslationResult.from_dict(cached)
+        else:
+            result = TranslationResult(
+                source_text=row["source_text"], translated_text=row["translated_text"],
+                source_lang=row["source_lang"], target_lang=row["target_lang"],
+                provider=row["provider"], from_cache=True)
+        self.translator.present_result(result)
 
     def retry_card(self, row):
-        card_key = (row["front"], row["back"], row["deck"])
+        version = row.get("card_version", 1)
+        card_key = (row["front"], row["back"], row["deck"], version)
         if card_key in self.c.inflight_cards:
             return
         self.c.inflight_cards.add(card_key)
         def work():
-            note_id = self.c.anki().add_card(row["front"], row["back"], row.get("context", ""), row["deck"])
-            self.c.store.mark_card_sent(row["id"], note_id, identity=card_key)
+            if version == 2:
+                note_id = self.c.anki().add_vocabulary_card(
+                    row["front"], row["back"], definition=row.get("definition", ""),
+                    pronunciation=row.get("pronunciation", ""), context=row.get("context", ""),
+                    deck=row["deck"], definition_source=row.get("definition_source", ""))
+            else:
+                note_id = self.c.anki().add_card(row["front"], row["back"], row.get("context", ""), row["deck"])
+            self.c.store.mark_card_sent(row["id"], note_id, identity=card_key[:3], card_version=version)
         self.cards_info.setText("Sending card to Anki…")
         def success(_):
             self.c.inflight_cards.discard(card_key)
@@ -705,7 +765,7 @@ class MainWindow(QMainWindow):
         self.c.run(work, success, failure)
 
     def remove_card(self, row):
-        card_key = (row["front"], row["back"], row["deck"])
+        card_key = (row["front"], row["back"], row["deck"], row.get("card_version", 1))
         if card_key in self.c.inflight_cards:
             self.cards_info.setText("This card is being sent. Wait until the request finishes.")
             return
@@ -719,7 +779,7 @@ class MainWindow(QMainWindow):
         if path:
             try:
                 n = self.c.store.export_cards(path)
-                self.cards_info.setText(f"Exported {n} cards. Import in Anki with the Lilt note type, or map Front / Back / Context.")
+                self.cards_info.setText(f"Exported {n} cards. Review the note types and field mapping in Anki's import preview.")
             except OSError as exc:
                 self.cards_info.setText(f"Could not export: {exc}")
 
@@ -781,7 +841,11 @@ class MainWindow(QMainWindow):
         root.addWidget(self.settings_status)
         root.addWidget(button("Save preferences", self.save_preferences, primary=True))
         root.addStretch()
-        return page
+        # Keep this taller page from imposing its height on the translator.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(page)
+        return scroll
 
     def save_preferences(self):
         provider = self.provider.currentData()
@@ -799,7 +863,6 @@ class MainWindow(QMainWindow):
         self.c.store.set_setting("double_copy", self.double_copy.isChecked())
         self.c.store.set_setting("close_to_tray", self.to_tray.isChecked())
         self.c.preferences_changed.emit()
-        self.update_capture_status()
         self.settings_status.setText("Saved. Keys are encrypted for your Windows account.")
 
     def check_anki(self):
@@ -814,9 +877,6 @@ class MainWindow(QMainWindow):
                 pane.deck.addItems(decks)
                 pane.deck.setCurrentText(selected)
         self.c.run(client.check, success, lambda msg: self.anki_status.setText(msg))
-
-    def update_capture_status(self):
-        self.capture_status.setText("○  Paste to translate" if not self.capture_available else "●  Double-copy on" if self.c.store.get_setting("double_copy", True) else "○  Double-copy off")
 
     def show_page(self, index):
         self.pages.setCurrentIndex(index)
@@ -833,7 +893,7 @@ class MainWindow(QMainWindow):
             if self.popup:
                 self.popup.hide()
             if not self.c.store.get_setting("tray_notice_seen", False):
-                self.tray.showMessage("Lilt is still here", "Copy twice to translate. Use the tray menu to quit.")
+                self.tray.showMessage("Lilt is still here", "Use the tray menu to reopen or quit.")
                 self.c.store.set_setting("tray_notice_seen", True)
         else:
             self.quit()

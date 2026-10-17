@@ -76,6 +76,12 @@ QTextEdit, QPlainTextEdit {
 }
 QTextEdit:focus, QPlainTextEdit:focus { border-color: #ff9a21; }
 QTextEdit#translation { color: #ffb45a; }
+QTextEdit#details {
+    font-size: 18px;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
 QTextEdit#context {
     font-size: 13px;
     background-color: #191919;

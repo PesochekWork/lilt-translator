@@ -26,6 +26,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class AnkiClient:
     MODEL_NAME = "Lilt"
+    VOCABULARY_MODEL_NAME = "Lilt Vocabulary v2"
+    VOCABULARY_FIELDS = ["English", "Russian", "Definition", "Pronunciation", "Context", "DictionarySource"]
 
     def __init__(self, endpoint: str = "http://127.0.0.1:8765", api_key: str = "") -> None:
         self.endpoint = self._validate_endpoint(endpoint)
@@ -142,6 +144,90 @@ class AnkiClient:
                     "duplicateScopeOptions": {"deckName": deck, "checkChildren": False, "checkAllModels": False},
                 },
                 "tags": list(dict.fromkeys(clean_tags)),
+            },
+        )
+        if isinstance(result, bool) or not isinstance(result, int) or result <= 0:
+            raise AnkiError("Anki did not confirm the new card. Check Anki before trying again.")
+        return result
+
+    @classmethod
+    def vocabulary_model_spec(cls) -> dict:
+        """Describe new vocabulary cards without changing an existing note type."""
+        word = (
+            "<div class=english>{{English}}</div>"
+            "<div class=speech>{{tts en_US:English}}</div>"
+        )
+        return {
+            "modelName": cls.VOCABULARY_MODEL_NAME,
+            "inOrderFields": list(cls.VOCABULARY_FIELDS),
+            "css": (
+                ".card {font-family: Arial, sans-serif; font-size: 24px; text-align: center; "
+                "line-height: 1.55; padding: 24px 20px;} "
+                ".vocabulary {max-width: 900px; margin: 0 auto; overflow-wrap: anywhere;} "
+                ".english {font-size: 30px;} "
+                ".speech {margin-top: 8px; line-height: 1;} "
+                ".speech .replay-button {display: inline-block; margin: 0 4px;} "
+                "#answer {margin: 24px 0;} "
+                ".pronunciation {font-size: 22px; margin-bottom: 14px;} "
+                ".russian {font-size: 24px;} "
+                ".definition {font-size: 21px; margin-top: 18px;} "
+                ".context {font-size: 19px; margin-top: 22px;}"
+            ),
+            "isCloze": False,
+            "cardTemplates": [{
+                "Name": "English vocabulary",
+                "Front": "<div class=vocabulary>" + word + "</div>",
+                "Back": (
+                    "{{FrontSide}}<div class=vocabulary><hr id=answer>"
+                    "{{#Pronunciation}}<div class=pronunciation>{{Pronunciation}}</div>{{/Pronunciation}}"
+                    "<div class=russian>{{Russian}}</div>"
+                    "{{#Definition}}<div class=definition>{{Definition}}</div>{{/Definition}}"
+                    "{{#Context}}<div class=context>{{Context}}</div>{{/Context}}"
+                    "</div>"
+                ),
+            }],
+        }
+
+    def _ensure_vocabulary_model(self) -> None:
+        """Use a separate note type; never rewrite old or user-edited templates."""
+        models = self._request("modelNames")
+        if not isinstance(models, list) or not all(isinstance(model, str) for model in models):
+            raise AnkiError("AnkiConnect returned an invalid note type list.")
+        if self.VOCABULARY_MODEL_NAME in models:
+            fields = self._request("modelFieldNames", modelName=self.VOCABULARY_MODEL_NAME)
+            if fields != self.VOCABULARY_FIELDS:
+                raise AnkiError(
+                    "The existing Lilt Vocabulary v2 note type has different fields. "
+                    "Rename it in Anki, then try again. Its fields and templates were left unchanged."
+                )
+            return
+        self._request("createModel", **self.vocabulary_model_spec())
+
+    def add_vocabulary_card(
+        self, english: str, russian: str, definition: str = "", pronunciation: str = "", context: str = "",
+        deck: str = "Lilt", definition_source: str = ""
+    ) -> int:
+        """Add a new English-first card, allowing unavailable dictionary fields."""
+        english, russian, deck = english.strip(), russian.strip(), deck.strip()
+        if not english or not russian or not deck:
+            raise AnkiError("A card needs an English word, Russian translation and deck name.")
+        self._ensure_vocabulary_model()
+        self._request("createDeck", deck=deck)
+        result = self._request(
+            "addNote",
+            note={
+                "deckName": deck,
+                "modelName": self.VOCABULARY_MODEL_NAME,
+                "fields": {name: _html_text(value.strip()) for name, value in zip(
+                    self.VOCABULARY_FIELDS,
+                    (english, russian, definition, pronunciation, context, definition_source),
+                )},
+                "options": {
+                    "allowDuplicate": False,
+                    "duplicateScope": "deck",
+                    "duplicateScopeOptions": {"deckName": deck, "checkChildren": False, "checkAllModels": False},
+                },
+                "tags": ["lilt"],
             },
         )
         if isinstance(result, bool) or not isinstance(result, int) or result <= 0:

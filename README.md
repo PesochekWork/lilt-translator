@@ -2,7 +2,7 @@
 
 A small Windows desktop translator for **English ↔ Russian**, with a quick selection popup, local translation history, and shortcut-driven Anki cards. No Lilt account is needed.
 
-The interface uses a charcoal theme, orange accents, sharp borders, and square checkboxes.
+The interface uses a charcoal theme, orange accents, sharp borders, and square checkboxes. The main window starts at **960 × 600**, with compact text panes for words and short phrases. Translation text stays at **19 px**; pronunciation and details use **18 px** with wrapping and scrolling. Resize the window for longer text. Repeated language/provider badges and capture-status help are hidden; language selection, Swap, and Preferences remain available.
 
 ![Lilt translator](docs/translator.png)
 
@@ -36,7 +36,9 @@ You can also copy once, then press **Ctrl+Alt+Space**, or choose **Translate cli
 | Ctrl+Shift+A | Save the displayed source and translation as an Anki card |
 | Esc | Hide the quick popup |
 
-In the main window, paste or type text and click **Translate**. Language detection chooses between Russian and English locally; select the source language yourself for short or mixed-language passages. The other language becomes the target. You can edit the translated text before making a card. Google may also return alternatives grouped by part of speech and transliteration; these are optional and vary by word.
+In the main window, paste or type text and click **Translate**. Language detection chooses between Russian and English locally; select the source language yourself for short or mixed-language passages. The other language becomes the target. You can edit the translated text before making a card.
+
+For short English words or phrases, Lilt also requests English definitions and phonetic text from the [Free Dictionary API](https://dictionaryapi.dev/), without an API key. With Russian input it looks up the English translation. Lookups accept up to **80 characters and four words**; sentences and unsupported input are skipped. Missing entries or dictionary connection failures leave the translation usable. Fresh translations cache any dictionary details alongside the result; Preview or Add can retry missing details. Google's translated alternatives and romanization are separate from English definitions and dictionary IPA.
 
 ## Translation providers and connection drops
 
@@ -56,7 +58,9 @@ Lilt connects to Anki desktop on this computer through [AnkiConnect](https://git
 4. Translate something, optionally add a context sentence, and choose or type a deck name. A new deck is created when the card is sent.
 5. Click **Preview**, then **Add to Anki**, or press **Ctrl+Shift+A**.
 
-The first successful send creates a note type named **Lilt** with **Front**, **Back**, and **Context** fields. It makes one card: the source on the front, and the translation plus your context on the back. If a different note type already uses the name Lilt, rename it in Anki before retrying.
+New cards use the note type **Lilt Vocabulary v2**, created automatically on the first **Add to Anki** if absent. Its fields are **English**, **Russian**, **Definition**, **Pronunciation**, **Context**, and **DictionarySource**, in that order. The English word is centered on the front; the back centers the word, Russian translation, available English definitions and phonetic text, and optional context. Dictionary source/license metadata stays in **DictionarySource** and exports, without visible source links on the review card. Russian → English input uses the same English-first card layout. **Preview** and **Cards** show these saved details. If dictionary information is unavailable, a translation card can still be saved with those optional fields empty.
+
+Existing local cards and the original **Lilt** note type (**Front / Back / Context**) keep their original content and behavior. Normal Lilt card creation does not rewrite existing Anki templates, including user edits. If a note type already has the new name but different fields, Lilt reports the conflict instead of changing it. The requested centering and speech update to this computer's existing **Lilt Vocabulary v2** templates is applied separately after a local backup; it affects how those existing notes are displayed, without changing their field contents.
 
 Cards are saved locally before sending. If Anki is closed or unreachable, open **Cards** later and click **Send to Anki** on a waiting card. Retry is explicit; leaving a card waiting does not automatically send it. A successful send is marked **In Anki**. Removing a local card from Lilt leaves any existing Anki note in place.
 
@@ -64,16 +68,28 @@ An AnkiConnect API key is only needed if you configured one in that add-on. Ente
 
 ### Export instead
 
-In **Cards**, choose **Export for Anki** to save all local cards as a UTF-8 `.tsv` file, including cards already sent to Anki. In Anki, choose **File → Import**, select the file, and review the preview before importing:
+In **Cards**, choose **Export for Anki** to save all local cards as a UTF-8 `.tsv` file, including cards already sent to Anki. In Anki, choose **File → Import**, select the file, and review the preview before importing. Exports containing new cards include note-type and deck columns:
 
 | Export column | Import mapping |
 | --- | --- |
-| 1 — Front | Front |
-| 2 — Back | Back |
-| 3 — Context | Context |
-| 4 — Deck | Deck column |
+| 1 — NoteType | Note type column |
+| 2 — Deck | Deck column |
+| 3 | English (old cards: Front) |
+| 4 | Russian (old cards: Back) |
+| 5 | Definition (old cards: Context) |
+| 6 | Pronunciation (old cards: unused) |
+| 7 | Context (old cards: unused) |
+| 8 | DictionarySource (old cards: unused) |
 
-Choose the **Lilt** note type, or create a note type with those three fields first. The export includes headers for tab separation, plain text, the `lilt` tag, and the deck column. On current Anki versions these guide the import. If using another note type, map or ignore Context deliberately. Review Anki's duplicate handling when importing cards you have already sent. See the [official text import guide](https://docs.ankiweb.net/manual/importing/text-files).
+The named note types must already exist in Anki; TSV import does not create them. Normal **Add to Anki** creates the new type, or create **Lilt Vocabulary v2** manually with the six fields listed above in that exact order and an English-front template. Mixed exports also require the original **Lilt** type. Anki maps fields by their order within each note type, so review the import preview carefully.
+
+An export containing only old cards keeps the original four columns: **Front / Back / Context / Deck**. Use the original **Lilt** type for that file. Export headers specify tab separation, plain text, the `lilt` tag, and deck/note-type columns as applicable. Review duplicate handling when importing cards already sent. See the [official text import guide](https://docs.ankiweb.net/manual/importing/text-files).
+
+### Speech playback
+
+The vocabulary template uses Anki's native **`{{tts en_US:English}}`** on the front, so speech reads only the English word. The answer reuses the front's word and replay button. In Anki's reviewer, press **R** or **F5** to replay it, or use the replay button. Answer-side keyboard replay uses the existing **Skip question when replaying answer** option: leave that option off to replay the word on either side. A single speech tag avoids saying the word twice. Playback uses an English voice already installed in Windows; no external speech service, API key, additional voice, or audio download is required.
+
+Automatic playback follows your existing Anki deck setting. Lilt does not change that setting. To use replay only, enable **Don't play audio automatically** in the deck's **Audio** options. If no suitable English voice is installed, Windows voice setup is needed for speech; the card's text still works. See Anki's [text-to-speech documentation](https://docs.ankiweb.net/manual/templates/fields#text-to-speech-for-individual-fields) and [audio options](https://docs.ankiweb.net/manual/deck-options#audio).
 
 ## Preferences, tray, and local data
 
@@ -83,7 +99,7 @@ Lilt stores its database and preferences in **`%LOCALAPPDATA%\Lilt`**, normally 
 
 Optional API keys are saved separately as `credentials.dpapi`, protected for your Windows account using [Windows DPAPI](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata). They generally cannot be moved to another account or computer by copying that file; enter them again there.
 
-Text is sent to the selected translation provider only when you click **Translate**, use its shortcut, or invoke clipboard translation. Typing alone does not send a request. A matching cached result uses no network request. Context and card contents are sent to local Anki when you add or retry a card. The global keyboard listener recognizes the capture shortcuts; it does not save a keystroke history.
+Text is sent to the selected translation provider only when you click **Translate**, use its shortcut, or invoke clipboard translation. Typing alone does not send a request. A matching cached translation uses no network request. Fresh translations and card preparation can send the short English word or phrase to Free Dictionary API for optional definitions and pronunciation. Context and card contents are sent to local Anki when you add or retry a card. The global keyboard listener recognizes the capture shortcuts; it does not save a keystroke history.
 
 ## Limits and troubleshooting
 
@@ -91,8 +107,8 @@ Text is sent to the selected translation provider only when you click **Translat
 - If a selection does not copy, try copying once and using **Ctrl+Alt+Space**, or paste into the main window. Another application's reserved shortcut, elevated window, or clipboard behavior can affect global capture. The tray's **Translate clipboard** action is another fallback.
 - If the detected language is wrong, select **English** or **Русский** before translating.
 - If Anki cannot be reached, check that Anki is open, the add-on is installed, and Anki was restarted. Use **Test connection** and check any configured API key. Your card stays in Lilt for retry.
-- Dictionary alternatives and transliteration are provider-dependent. DeepL currently supplies the translation only.
-- There is no bundled offline model, pronunciation audio, OCR, or automatic context extraction in this version.
+- Google's alternatives and transliteration are provider-dependent. Real English definitions and phonetic text come from the separate optional dictionary lookup, including when using DeepL.
+- There is no bundled offline translation model, recorded pronunciation audio, OCR, or automatic context extraction in this version. Anki speech uses the system voice as described above.
 
 ## Test and build
 

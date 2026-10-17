@@ -14,6 +14,7 @@ from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 
 from lilt.anki import AnkiError
+from lilt.dictionary import EnglishEntry
 from lilt.engine import GOOGLE_PROVIDER, TranslationResult
 from lilt.storage import Store
 from lilt.ui import Controller, MainWindow, TranslationPane
@@ -177,8 +178,9 @@ class UiTests(unittest.TestCase):
         pane.context.setText("A greeting to a friend.")
         pane.deck.setCurrentText("Vocabulary")
         client = Mock()
-        client.add_card.side_effect = AnkiError("Could not reach Anki. Open Anki Desktop.")
-        with patch.object(self.controller, "anki", return_value=client):
+        client.add_vocabulary_card.side_effect = AnkiError("Could not reach Anki. Open Anki Desktop.")
+        entry = EnglishEntry("hello", ["A greeting."], "/həˈləʊ/", "Wiktionary; CC BY-SA")
+        with patch.object(self.controller, "anki", return_value=client), patch("lilt.cards.lookup_english", return_value=entry):
             pane.add_card()
             self.spin_until(lambda: not pane.adding and not self.controller.jobs)
         cards = self.store.cards()
@@ -187,9 +189,75 @@ class UiTests(unittest.TestCase):
         self.assertEqual((card["front"], card["back"], card["context"], card["deck"]),
                          ("hello", "привет", "A greeting to a friend.", "Vocabulary"))
         self.assertIsNone(card["note_id"])
+        self.assertEqual((card["card_version"], card["definition"], card["pronunciation"]),
+                         (2, "A greeting.", "/həˈləʊ/"))
         self.assertIn("Anki", pane.banner.text())
         self.assertTrue(pane.add_button.isEnabled())
-        client.add_card.assert_called_once_with("hello", "привет", "A greeting to a friend.", "Vocabulary")
+        client.add_vocabulary_card.assert_called_once_with(
+            "hello", "привет", definition="A greeting.", pronunciation="/həˈləʊ/",
+            context="A greeting to a friend.", deck="Vocabulary", definition_source="Wiktionary; CC BY-SA")
+        client.add_card.assert_not_called()
+
+    def test_russian_query_saves_english_first_card_and_keeps_legacy_card(self):
+        self.store.save_card("hello", "привет", "old context", "Lilt", note_id=42)
+        pane = self.pane()
+        pane.source.setPlainText("привет")
+        result = sample_result("привет", "hello")
+        result.source_lang, result.target_lang = "ru", "en"
+        pane.present_result(result)
+        client = Mock()
+        client.add_vocabulary_card.return_value = 99
+        entry = EnglishEntry("hello", ["A greeting."], "/həˈləʊ/", "dictionary source")
+        with patch.object(self.controller, "anki", return_value=client), patch("lilt.cards.lookup_english", return_value=entry):
+            pane.add_card()
+            self.spin_until(lambda: not pane.adding and not self.controller.jobs)
+        rich = self.store.find_card("hello", "привет", "Lilt", card_version=2)
+        legacy = self.store.find_card("hello", "привет", "Lilt")
+        self.assertEqual((rich["definition"], rich["pronunciation"], rich["note_id"]), ("A greeting.", "/həˈləʊ/", 99))
+        self.assertEqual((legacy["context"], legacy["note_id"]), ("old context", 42))
+
+    def test_card_preview_runs_dictionary_off_gui_thread_and_uses_english_front(self):
+        pane = self.pane()
+        pane.source.setPlainText("привет")
+        result = sample_result("привет", "hello")
+        result.source_lang, result.target_lang = "ru", "en"
+        pane.present_result(result)
+        worker_threads, previews = [], []
+        def lookup(word):
+            worker_threads.append(threading.get_ident())
+            return EnglishEntry(word, ["A greeting."], "/həˈləʊ/", "source")
+        with patch("lilt.cards.lookup_english", side_effect=lookup), patch.object(pane, "_show_card_preview", side_effect=previews.append):
+            pane.preview_card()
+            self.spin_until(lambda: not pane.previewing and not self.controller.jobs)
+        self.assertEqual(previews[0].english, "hello")
+        self.assertEqual(previews[0].russian, "привет")
+        self.assertNotEqual(worker_threads, [threading.get_ident()])
+        self.assertEqual(self.store.stats()["cards"], 0)
+
+    def test_cached_translation_does_not_contact_dictionary(self):
+        result = sample_result()
+        self.store.cache_put("hello", "auto", "google", result.to_dict())
+        with patch("lilt.ui.enrich_translation") as dictionary, patch("lilt.ui.translate") as network:
+            restored = self.controller.lookup("hello", "auto")
+        self.assertTrue(restored.from_cache)
+        dictionary.assert_not_called()
+        network.assert_not_called()
+
+    def test_retry_uses_stored_rich_fields_without_another_dictionary_lookup(self):
+        self.store.save_card("hello", "привет", "context", "Lilt", card_version=2,
+                             definition="A greeting.", pronunciation="/həˈləʊ/", definition_source="source")
+        row = self.store.find_card("hello", "привет", "Lilt", card_version=2)
+        window = self.window()
+        client = Mock()
+        client.add_vocabulary_card.return_value = 77
+        with patch.object(self.controller, "anki", return_value=client), patch("lilt.cards.lookup_english") as dictionary:
+            window.retry_card(row)
+            self.spin_until(lambda: not self.controller.jobs)
+        self.assertEqual(self.store.find_card("hello", "привет", "Lilt", card_version=2)["note_id"], 77)
+        dictionary.assert_not_called()
+        client.add_vocabulary_card.assert_called_once_with(
+            "hello", "привет", definition="A greeting.", pronunciation="/həˈləʊ/",
+            context="context", deck="Lilt", definition_source="source")
 
 
 if __name__ == "__main__":

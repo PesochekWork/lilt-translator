@@ -39,6 +39,11 @@ class TranslationResult:
     definitions: list[dict] = field(default_factory=list)
     pronunciation: str = ""
     from_cache: bool = False
+    english_word: str = ""
+    english_definitions: list[str] = field(default_factory=list)
+    english_pronunciation: str = ""
+    dictionary_source: str = ""
+    dictionary_checked: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,6 +63,12 @@ class TranslationResult:
             definitions=_definitions(data.get("definitions", [])),
             pronunciation=data.get("pronunciation", "") if isinstance(data.get("pronunciation", ""), str) else "",
             from_cache=bool(data.get("from_cache", False)),
+            english_word=data.get("english_word", "") if isinstance(data.get("english_word", ""), str) else "",
+            english_definitions=[item for item in data.get("english_definitions", []) if isinstance(item, str)]
+            if isinstance(data.get("english_definitions", []), list) else [],
+            english_pronunciation=data.get("english_pronunciation", "") if isinstance(data.get("english_pronunciation", ""), str) else "",
+            dictionary_source=data.get("dictionary_source", "") if isinstance(data.get("dictionary_source", ""), str) else "",
+            dictionary_checked=bool(data.get("dictionary_checked", False)),
         )
 
 

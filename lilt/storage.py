@@ -81,10 +81,44 @@ class Store:
                     deck TEXT NOT NULL,
                     note_id INTEGER,
                     created_at TEXT NOT NULL,
-                    UNIQUE (front, back, deck)
+                    card_version INTEGER NOT NULL DEFAULT 1,
+                    definition TEXT NOT NULL DEFAULT '',
+                    pronunciation TEXT NOT NULL DEFAULT '',
+                    definition_source TEXT NOT NULL DEFAULT '',
+                    UNIQUE (front, back, deck, card_version)
                 );
                 """
             )
+            self._migrate_cards(conn)
+
+    @staticmethod
+    def _migrate_cards(conn: sqlite3.Connection) -> None:
+        """Replace the old uniqueness constraint atomically, keeping each row intact."""
+        conn.execute("BEGIN IMMEDIATE")
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(cards)")}
+        rich_columns = {"card_version", "definition", "pronunciation", "definition_source"}
+        if rich_columns <= columns:
+            return
+        conn.execute(
+            "CREATE TABLE cards_v2_migration ("
+            "id INTEGER PRIMARY KEY, front TEXT NOT NULL, back TEXT NOT NULL, "
+            "context TEXT NOT NULL DEFAULT '', deck TEXT NOT NULL, note_id INTEGER, "
+            "created_at TEXT NOT NULL, card_version INTEGER NOT NULL DEFAULT 1, "
+            "definition TEXT NOT NULL DEFAULT '', pronunciation TEXT NOT NULL DEFAULT '', "
+            "definition_source TEXT NOT NULL DEFAULT '', UNIQUE (front, back, deck, card_version))"
+        )
+        # The previous release has none of these extra fields. Respect any fields
+        # already present in a partially upgraded database as well.
+        extra_values = [name if name in columns else default for name, default in (
+            ("card_version", "1"), ("definition", "''"), ("pronunciation", "''"), ("definition_source", "''")
+        )]
+        conn.execute(
+            "INSERT INTO cards_v2_migration "
+            "(id, front, back, context, deck, note_id, created_at, card_version, definition, pronunciation, definition_source) "
+            "SELECT id, front, back, context, deck, note_id, created_at, " + ", ".join(extra_values) + " FROM cards"
+        )
+        conn.execute("DROP TABLE cards")
+        conn.execute("ALTER TABLE cards_v2_migration RENAME TO cards")
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -173,62 +207,82 @@ class Store:
     def history(self, limit: int = 100) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                "SELECT id, source_text, translated_text, source_lang, target_lang, provider, created_at "
+                "SELECT id, source_text, translated_text, source_lang, target_lang, provider, created_at, request_lang, provider_key "
                 "FROM history ORDER BY created_at DESC, id DESC LIMIT ?", (_limit(limit),)
             ).fetchall()
         return [dict(row) for row in rows]
 
     def save_card(
-        self, front: str, back: str, context: str = "", deck: str = "English", note_id: int | None = None
+        self, front: str, back: str, context: str = "", deck: str = "English", note_id: int | None = None,
+        *, card_version: int = 1, definition: str = "", pronunciation: str = "", definition_source: str = ""
     ) -> bool:
         front, back, deck = front.strip(), back.strip(), deck.strip()
         if not front or not back or not deck:
             raise ValueError("A card needs a front, back and deck name.")
         if note_id is not None and (isinstance(note_id, bool) or not isinstance(note_id, int) or note_id <= 0):
             raise ValueError("Anki note ID must be a positive integer.")
+        self._validate_card_version(card_version)
         with self._connection() as conn:
             cursor = conn.execute(
-                "INSERT OR IGNORE INTO cards (front, back, context, deck, note_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)", (front, back, context.strip(), deck, note_id, _now())
+                "INSERT OR IGNORE INTO cards "
+                "(front, back, context, deck, note_id, created_at, card_version, definition, pronunciation, definition_source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (front, back, context.strip(), deck, note_id, _now(), card_version,
+                 definition.strip(), pronunciation.strip(), definition_source.strip()),
             )
             added = cursor.rowcount == 1
             if not added and note_id is not None:
                 conn.execute(
-                    "UPDATE cards SET note_id = ? WHERE front = ? AND back = ? AND deck = ? AND note_id IS NULL",
-                    (note_id, front, back, deck),
+                    "UPDATE cards SET note_id = ? WHERE front = ? AND back = ? AND deck = ? "
+                    "AND card_version = ? AND note_id IS NULL",
+                    (note_id, front, back, deck, card_version),
                 )
         return added
 
     def cards(self, limit: int = 200) -> list[dict]:
         with self._connection() as conn:
             rows = conn.execute(
-                "SELECT id, front, back, context, deck, note_id, created_at FROM cards "
+                "SELECT id, front, back, context, deck, note_id, created_at, "
+                "card_version, definition, pronunciation, definition_source FROM cards "
                 "ORDER BY created_at DESC, id DESC LIMIT ?", (_limit(limit),)
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def find_card(self, front: str, back: str, deck: str) -> dict | None:
+    @staticmethod
+    def _validate_card_version(card_version: int) -> None:
+        if isinstance(card_version, bool) or not isinstance(card_version, int) or card_version not in (1, 2):
+            raise ValueError("Unsupported card version.")
+
+    def find_card(self, front: str, back: str, deck: str, *, card_version: int = 1) -> dict | None:
+        self._validate_card_version(card_version)
         with self._connection() as conn:
             row = conn.execute(
-                "SELECT id, front, back, context, deck, note_id, created_at FROM cards "
-                "WHERE front = ? AND back = ? AND deck = ?",
-                (front.strip(), back.strip(), deck.strip()),
+                "SELECT id, front, back, context, deck, note_id, created_at, "
+                "card_version, definition, pronunciation, definition_source FROM cards "
+                "WHERE front = ? AND back = ? AND deck = ? AND card_version = ?",
+                (front.strip(), back.strip(), deck.strip(), card_version),
             ).fetchone()
         return dict(row) if row is not None else None
 
     def mark_card_sent(
-        self, card_id: int, note_id: int, *, identity: tuple[str, str, str] | None = None
+        self, card_id: int, note_id: int, *, identity: tuple[str, str, str] | None = None,
+        card_version: int | None = None
     ) -> None:
         if isinstance(note_id, bool) or not isinstance(note_id, int) or note_id <= 0:
             raise ValueError("Anki note ID must be a positive integer.")
+        if card_version is not None:
+            self._validate_card_version(card_version)
         with self._connection() as conn:
+            version_clause = " AND card_version = ?" if card_version is not None else ""
+            version_params = (card_version,) if card_version is not None else ()
             if identity is None:
-                conn.execute("UPDATE cards SET note_id = ? WHERE id = ?", (note_id, card_id))
+                conn.execute("UPDATE cards SET note_id = ? WHERE id = ?" + version_clause,
+                             (note_id, card_id) + version_params)
             else:
                 front, back, deck = (part.strip() for part in identity)
                 conn.execute(
-                    "UPDATE cards SET note_id = ? WHERE id = ? AND front = ? AND back = ? AND deck = ?",
-                    (note_id, card_id, front, back, deck),
+                    "UPDATE cards SET note_id = ? WHERE id = ? AND front = ? AND back = ? AND deck = ?" + version_clause,
+                    (note_id, card_id, front, back, deck) + version_params,
                 )
 
     def delete_card(self, card_id: int) -> None:
@@ -244,12 +298,27 @@ class Store:
     def export_cards(self, path: Path | str) -> int:
         """Export every local card as UTF-8 Anki text with quoted multiline fields."""
         with self._connection() as conn:
-            rows = conn.execute("SELECT front, back, context, deck FROM cards ORDER BY id").fetchall()
+            rows = conn.execute(
+                "SELECT front, back, context, deck, card_version, definition, pronunciation, definition_source "
+                "FROM cards ORDER BY id"
+            ).fetchall()
         with Path(path).open("w", encoding="utf-8", newline="") as file:
-            file.write("#separator:Tab\n#html:false\n#tags:lilt\n#deck column:4\n")
-            file.write("#columns:Front\tBack\tContext\tDeck\n")
+            file.write("#separator:Tab\n#html:false\n#tags:lilt\n")
             writer = csv.writer(file, delimiter="\t", lineterminator="\n")
-            writer.writerows(tuple(row) for row in rows)
+            if all(row["card_version"] == 1 for row in rows):
+                file.write("#deck column:4\n#columns:Front\tBack\tContext\tDeck\n")
+                writer.writerows((row["front"], row["back"], row["context"], row["deck"]) for row in rows)
+            else:
+                # With a note-type column Anki maps the remaining fields by
+                # position in each model, rather than the displayed column name.
+                file.write("#notetype column:1\n#deck column:2\n")
+                file.write("#columns:NoteType\tDeck\tFront / English\tBack / Russian\tContext / Definition\tPronunciation\tContext\tDictionarySource\n")
+                for row in rows:
+                    if row["card_version"] == 1:
+                        writer.writerow(("Lilt", row["deck"], row["front"], row["back"], row["context"], "", "", ""))
+                    else:
+                        writer.writerow(("Lilt Vocabulary v2", row["deck"], row["front"], row["back"], row["definition"],
+                                         row["pronunciation"], row["context"], row["definition_source"]))
         return len(rows)
 
     def clear_history(self) -> None:
