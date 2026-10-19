@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from .anki import AnkiClient, AnkiError
+from . import startup
 from .cards import enrich_translation, prepare_vocabulary_card
 from .credentials import Credentials
 from .engine import TranslationResult, translate
@@ -825,7 +826,17 @@ class MainWindow(QMainWindow):
         box.addLayout(row)
         root.addWidget(anki)
         behavior, box = panel()
-        box.addWidget(label("SHORTCUTS & TRAY", "eyebrow"))
+        box.addWidget(label("BEHAVIOR", "eyebrow"))
+        self.start_with_windows = QCheckBox("Start Lilt with Windows")
+        self.start_with_windows.setToolTip("Start quietly in the system tray after you sign in.")
+        startup_error = ""
+        try:
+            self.start_with_windows.setChecked(startup.is_enabled())
+        except startup.StartupError as exc:
+            startup_error = str(exc)
+            self.start_with_windows.setEnabled(False)
+            self.start_with_windows.setToolTip(startup_error)
+        box.addWidget(self.start_with_windows)
         self.double_copy = QCheckBox("Open a quick popup when I press Ctrl+C twice")
         self.double_copy.setChecked(self.c.store.get_setting("double_copy", True))
         box.addWidget(self.double_copy)
@@ -836,7 +847,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         box.addWidget(hint)
         root.addWidget(behavior)
-        self.settings_status = label("Optional keys are encrypted for your Windows account.", "muted")
+        self.settings_status = label(startup_error or "Optional keys are encrypted for your Windows account.", "muted")
         self.settings_status.setWordWrap(True)
         root.addWidget(self.settings_status)
         root.addWidget(button("Save preferences", self.save_preferences, primary=True))
@@ -863,6 +874,18 @@ class MainWindow(QMainWindow):
         self.c.store.set_setting("double_copy", self.double_copy.isChecked())
         self.c.store.set_setting("close_to_tray", self.to_tray.isChecked())
         self.c.preferences_changed.emit()
+        if self.start_with_windows.isEnabled():
+            try:
+                requested = self.start_with_windows.isChecked()
+                if requested != startup.is_enabled():
+                    startup.set_enabled(requested)
+            except startup.StartupError as exc:
+                self.settings_status.setText(f"Other preferences saved. {exc}")
+                try:
+                    self.start_with_windows.setChecked(startup.is_enabled())
+                except startup.StartupError:
+                    pass
+                return
         self.settings_status.setText("Saved. Keys are encrypted for your Windows account.")
 
     def check_anki(self):

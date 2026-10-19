@@ -17,6 +17,7 @@ def main(report_path):
     from .storage import Store
     from .ui import Controller, TranslationPane, STYLE
     from . import theme
+    from . import startup
     report = {"ok": False, "app_version": __version__, "qt_version": qt_version}
     try:
         app = QApplication([])
@@ -48,8 +49,11 @@ def main(report_path):
             if sys.platform == "win32":
                 c.credentials.write({"anki": "package-check"})
                 assert c.credentials.read() == {"anki": "package-check"}
+                # Validate the packaged entry point without reading/writing Run.
+                assert startup.command().endswith(" --startup")
             report.update(ok=True, checks=["Qt widgets", "enriched translation cache", "legacy and vocabulary cards",
-                                          "language detection", "versioned Anki client", "credential protection"])
+                                          "language detection", "versioned Anki client", "credential protection",
+                                          "Windows startup command"])
             pane.deleteLater()
             app.processEvents()
     except Exception as exc:

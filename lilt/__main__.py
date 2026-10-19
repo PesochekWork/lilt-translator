@@ -13,6 +13,7 @@ def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         from .selftest import main as self_test
         return self_test(sys.argv[2])
+    startup_launch = "--startup" in sys.argv[1:]
     app = QApplication(sys.argv)
     app.setApplicationName("Lilt")
     app.setOrganizationName("Lilt")
@@ -23,7 +24,8 @@ def main():
     # A second launch brings the existing window forward instead of doubling hooks.
     lock = InstanceLock(store.data_dir)
     if not lock.acquire():
-        lock.activate_existing()
+        if not startup_launch:
+            lock.activate_existing()
         return 0
     controller = Controller(store)
     window = MainWindow(controller)
@@ -38,7 +40,8 @@ def main():
         # Do not include user text or credentials in persistent crash logs.
         QMessageBox.critical(window, "Lilt ran into a problem", f"{kind.__name__}: {value}")
     sys.excepthook = exception_hook
-    window.show()
+    if not startup_launch or window.tray is None:
+        window.show()
     result = app.exec()
     lock.release()
     return result

@@ -66,7 +66,8 @@ class UiTests(unittest.TestCase):
         return pane
 
     def window(self):
-        with patch("lilt.ui.QSystemTrayIcon.isSystemTrayAvailable", return_value=False):
+        with patch("lilt.ui.QSystemTrayIcon.isSystemTrayAvailable", return_value=False), \
+             patch("lilt.ui.startup.is_enabled", return_value=False):
             window = MainWindow(self.controller, listen=False)
         self.widgets.append(window)
         return window

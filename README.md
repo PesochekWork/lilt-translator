@@ -18,7 +18,7 @@ Before updating, save any text you need and choose **Quit Lilt** from its system
 
 To uninstall, use **Windows Settings → Apps → Lilt**. Uninstalling removes the application and its shortcuts, but keeps your personal data in **`%LOCALAPPDATA%\Lilt`**. Anki, AnkiConnect, and speech voices are separate and are not installed or removed by Lilt setup.
 
-For a folder-only package, download **Lilt-0.1.0-windows-x64.zip** from the [release page](https://github.com/PesochekWork/lilt-translator/releases), extract it, and run **Lilt.exe**. Keep the extracted folder together. Both packages use the same local data folder; the ZIP does not isolate your history or settings. Release assets also include **SHA256SUMS.txt** for download verification.
+For a folder-only package, download the latest **Lilt-…-windows-x64.zip** from the [release page](https://github.com/PesochekWork/lilt-translator/releases), extract it, and run **Lilt.exe**. Keep the extracted folder together. Both packages use the same local data folder; the ZIP does not isolate your history or settings. Release assets also include **SHA256SUMS.txt** for download verification.
 
 ## What Lilt does
 
@@ -106,7 +106,9 @@ Automatic playback follows your existing Anki deck setting. Lilt does not change
 
 ## Preferences, tray, and local data
 
-**Preferences** controls the provider, optional keys, double-copy capture, and closing to the tray. Click **Save preferences** to apply changes. By default, closing the main window leaves Lilt in the Windows system tray so the shortcuts continue working. Double-click its tray icon to reopen it; choose **Quit Lilt** from the tray menu to exit fully. Lilt does not add itself to Windows startup.
+**Preferences** controls the provider, optional keys, double-copy capture, Windows startup, and closing to the tray. Click **Save preferences** to apply changes. By default, closing the main window leaves Lilt in the Windows system tray so the shortcuts continue working. Double-click its tray icon to reopen it; choose **Quit Lilt** from the tray menu to exit fully.
+
+To launch automatically after signing into Windows, enable **Start Lilt with Windows** and click **Save preferences**. This option is off until you enable it, applies only to your Windows account, and needs no administrator privileges. Automatic launches stay in the system tray; opening Lilt normally still opens its window. Uncheck the option and save to disable it. Windows Startup Apps can also disable startup independently. If you move a portable/source copy, enable the option again from its new location. Uninstalling removes startup registration only when it points to that installation.
 
 Lilt stores its database and preferences in **`%LOCALAPPDATA%\Lilt`**, normally `C:\Users\<you>\AppData\Local\Lilt`. The `lilt.sqlite3` database contains translation history, cached text, and local cards in readable form. Quit Lilt before backing up the whole folder.
 

@@ -1,0 +1,36 @@
+name: Windows build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+      - name: Test and build application
+        shell: pwsh
+        run: .\build.ps1
+      - name: Build installer and portable archive
+        shell: pwsh
+        run: |
+          .\build-installer.ps1 -PackageDir dist\Lilt -OutputDir dist\release
+          $liltVersion = python -c "from lilt import __version__; print(__version__)"
+          Compress-Archive -LiteralPath dist\Lilt -DestinationPath "dist\release\Lilt-$liltVersion-windows-x64.zip"
+          $liltChecksums = Get-ChildItem -LiteralPath dist\release -File | Sort-Object Name | ForEach-Object {
+            ((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name)
+          }
+          $liltChecksums | Set-Content -LiteralPath dist\release\SHA256SUMS.txt -Encoding utf8NoBOM
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Lilt-Windows
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14

@@ -54,6 +54,35 @@ Filename: "{app}\Lilt.exe"; Description: "Open Lilt"; WorkingDir: "{app}"; Flags
 ; in {localappdata}\Lilt belong to the user and survive uninstalling the app.
 
 [Code]
+function IsCurrentInstallationStartupCommand(const Command: String): Boolean;
+var
+  Executable, Candidate: String;
+begin
+  Executable := Lowercase(ExpandConstant('{app}\Lilt.exe'));
+  Candidate := Lowercase(Trim(Command));
+  { The app uses list2cmdline: executable paths containing spaces are quoted.
+    Match the whole command, not a path substring, so an alternate portable
+    copy or a command with different arguments keeps its startup registration. }
+  Result := (Candidate = Executable + ' --startup') or
+    (Candidate = '"' + Executable + '" --startup');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  RegisteredCommand: String;
+begin
+  if CurUninstallStep <> usUninstall then
+    Exit;
+  { Preferences creates startup registration only after the user opts in.
+    Remove only this installation's value for the current Windows account;
+    never delete the shared Run key or anything from the user's data folder. }
+  if RegQueryStringValue(HKEY_CURRENT_USER,
+    'Software\Microsoft\Windows\CurrentVersion\Run', 'Lilt', RegisteredCommand) then
+    if IsCurrentInstallationStartupCommand(RegisteredCommand) then
+      RegDeleteValue(HKEY_CURRENT_USER,
+        'Software\Microsoft\Windows\CurrentVersion\Run', 'Lilt');
+end;
+
 { Inno Setup 6 runs a 32-bit setup process, including when installing an x64
   application. Its Pascal engine uses Integer for these Win32 pointer/handles. }
 function OpenExistingFileForWrite(const FileName: String; DesiredAccess,
