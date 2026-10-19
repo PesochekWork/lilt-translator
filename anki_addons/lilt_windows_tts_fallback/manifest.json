@@ -1,0 +1,6 @@
+{
+  "package": "lilt_windows_tts_fallback",
+  "name": "Lilt: Windows speech fallback",
+  "homepage": "https://github.com/PesochekWork/lilt-translator",
+  "conflicts": []
+}
